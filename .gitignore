@@ -1,1 +1,5 @@
-cmd/reader/reader
+/sm-reader
+/sm-postgres
+/sm-rrdtool
+/example.txt
+/test

@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	m "github.com/gmulders/meterstanden"
+	smr "github.com/gmulders/smart-meter-readings"
 	log "github.com/sirupsen/logrus"
 	"regexp"
 	"strconv"
@@ -49,7 +49,7 @@ var powerDeliveryPhase1Pattern = regexp.MustCompile(regexp.QuoteMeta("1-0:22.7.0
 var powerDeliveryPhase2Pattern = regexp.MustCompile(regexp.QuoteMeta("1-0:42.7.0") + valueRegex("kW"))
 var powerDeliveryPhase3Pattern = regexp.MustCompile(regexp.QuoteMeta("1-0:62.7.0") + valueRegex("kW"))
 
-func parseLine(msg *m.Telegram, line string) {
+func parseLine(msg *smr.Telegram, line string) {
 	matches := timestampPattern.FindStringSubmatch(line)
 	if matches != nil {
 		suffix := "+01:00"

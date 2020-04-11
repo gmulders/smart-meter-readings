@@ -4,8 +4,9 @@ import (
 	"bufio"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
-	m "github.com/gmulders/meterstanden"
+	smr "github.com/gmulders/smart-meter-readings"
 	nats "github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"github.com/tarm/serial"
@@ -41,7 +42,7 @@ func main() {
 	}
 	defer nc.Close()
 
-	channel := make(chan m.Telegram)
+	channel := make(chan smr.Telegram)
 
 	go writeTelegramStream(channel, nc)
 
@@ -50,19 +51,30 @@ func main() {
 
 var zeroTelegram = createZeroTelegram()
 
-func createZeroTelegram() m.Telegram {
-	telegram := m.Telegram{}
+func createZeroTelegram() smr.Telegram {
+	telegram := smr.Telegram{}
 	telegram.Timestamp = time.Unix(0, 0)
 	return telegram
 }
 
-func writeTelegramStream(ch chan m.Telegram, nc *nats.Conn) {
+func determineFilename(ts time.Time) (string, error) {
+	// Return the first name for which no file exists
+	for i := 1; i <= 999; i++ {
+		filename := fmt.Sprintf("meterstanden-%d-%02d.%03d.bin", ts.Year(), ts.Month(), i)
+		if _, err := os.Stat(filename); os.IsNotExist(err) {
+			return filename, nil
+		}
+	}
+	return "", errors.New("Could not determine filename")
+}
+
+func writeTelegramStream(ch chan smr.Telegram, nc *nats.Conn) {
 
 	lastMonth := -1
 	var writer *bufio.Writer
 	var file *os.File
 	var filename string
-	var previousTelegram m.Telegram
+	var previousTelegram smr.Telegram
 
 	for {
 		telegram := <-ch
@@ -92,10 +104,13 @@ func writeTelegramStream(ch chan m.Telegram, nc *nats.Conn) {
 				// Start a go routine to zip the old file
 				go gzipFile(filename)
 			}
-			ts := telegram.Timestamp
-			filename = fmt.Sprintf("meterstanden-%d-%02d.bin", ts.Year(), ts.Month())
-			newFile, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
 
+			filename, err = determineFilename(telegram.Timestamp)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			newFile, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -119,7 +134,7 @@ func writeTelegramStream(ch chan m.Telegram, nc *nats.Conn) {
 	}
 }
 
-func writeTelegram(writer io.Writer, telegram m.Telegram, previousTelegram m.Telegram) {
+func writeTelegram(writer io.Writer, telegram smr.Telegram, previousTelegram smr.Telegram) {
 	writeValue(writer, telegram.Timestamp.Unix(), previousTelegram.Timestamp.Unix())
 	writeValue(writer, telegram.ConsumedTariff1, previousTelegram.ConsumedTariff1)
 	writeValue(writer, telegram.ConsumedTariff2, previousTelegram.ConsumedTariff2)
@@ -145,9 +160,9 @@ func writeValue(writer io.Writer, newValue int64, oldValue int64) {
 	}
 }
 
-func readTelegramStream(reader *bufio.Reader, ch chan m.Telegram) {
+func readTelegramStream(reader *bufio.Reader, ch chan smr.Telegram) {
 	var crc uint16
-	var telegram *m.Telegram
+	var telegram *smr.Telegram
 
 	for {
 		// Read until next line feed (\n), this character is included in the resulting array
@@ -164,7 +179,7 @@ func readTelegramStream(reader *bufio.Reader, ch chan m.Telegram) {
 
 		if bytes[0] == 0x2f {
 			crc = 0
-			telegram = &m.Telegram{}
+			telegram = &smr.Telegram{}
 		}
 
 		if bytes[0] != 0x21 {
