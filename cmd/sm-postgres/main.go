@@ -30,7 +30,7 @@ func main() {
 	defer conn.Close(context.Background())
 
 	nc.Subscribe("sm-telegram", func(msg *nats.Msg) {
-		log.Info("Receiving p1-telegram")
+		log.Info("Receiving smart meter telegram")
 		telegram := smr.Telegram{}
 		if err := json.Unmarshal(msg.Data, &telegram); err != nil {
 			log.Errorf("Unable to unmarshal the telegram JSON: %v", err)
