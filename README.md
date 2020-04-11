@@ -35,7 +35,7 @@ sudo systemctl enable sm-reader
 ```
 sudo mkdir -p /opt/sm-postgres/bin
 sudo mkdir /etc/opt/sm-postgres
-sudo cp sm-reader /opt/sm-postgres/bin
+sudo cp sm-postgres /opt/sm-postgres/bin
 ```
 
 Create `/etc/systemd/system/sm-postgres.service`

@@ -85,8 +85,6 @@ func writeTelegramStream(ch chan smr.Telegram, nc *nats.Conn) {
 			log.Error(err)
 		}
 
-		log.Info(string(json))
-
 		err = nc.Publish("sm-telegram", json)
 		if err != nil {
 			log.Errorf("Could not publish 'p1-telegram' event to NATS: %v", err)
@@ -154,7 +152,6 @@ func writeTelegram(writer io.Writer, telegram smr.Telegram, previousTelegram smr
 
 func writeValue(writer io.Writer, newValue int64, oldValue int64) {
 	buff := make([]byte, binary.MaxVarintLen64)
-	fmt.Printf("value: %d\n", newValue-oldValue)
 	n := binary.PutVarint(buff, newValue-oldValue)
 	if _, err := writer.Write(buff[:n]); err != nil {
 		log.Fatal(err)
