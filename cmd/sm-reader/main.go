@@ -87,7 +87,7 @@ func writeTelegramStream(ch chan smr.Telegram, nc *nats.Conn) {
 
 		log.Info(string(json))
 
-		err = nc.Publish("p1-telegram", json)
+		err = nc.Publish("sm-telegram", json)
 		if err != nil {
 			log.Errorf("Could not publish 'p1-telegram' event to NATS: %v", err)
 			// We continue with saving the telegram, so that we don't lose data

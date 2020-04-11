@@ -2,12 +2,13 @@ package main
 
 import (
 	"errors"
-	smr "github.com/gmulders/smart-meter-readings"
-	log "github.com/sirupsen/logrus"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	smr "github.com/gmulders/smart-meter-readings"
+	log "github.com/sirupsen/logrus"
 )
 
 // parseNumber parses a string as an integer, assuming that the value has 3 decimals behind the decimal dot
