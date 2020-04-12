@@ -95,7 +95,7 @@ CREATE TABLE aggregate_value_300 (
 
 ALTER TABLE aggregate_value_300 ADD CONSTRAINT uq_aggregate_value_300_metric_id_timestamp UNIQUE (metric_id, timestamp);
 
-CREATE FUNCTION time_round(timestamp_in TIMESTAMPTZ, number int)
+CREATE FUNCTION time_floor(timestamp_in TIMESTAMPTZ, number int)
 RETURNS TIMESTAMPTZ AS
 $$
 DECLARE
@@ -113,7 +113,7 @@ RETURNS TRIGGER AS
 $$
 BEGIN
     INSERT INTO aggregate_value_300 VALUES (
-        time_round(NEW.timestamp, 300),
+        time_floor(NEW.timestamp, 300),
         NEW.metric_id,
         1,
         NEW.value,
