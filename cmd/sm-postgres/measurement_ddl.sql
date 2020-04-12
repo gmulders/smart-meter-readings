@@ -101,7 +101,7 @@ $$
 DECLARE
     timestamp_out TIMESTAMPTZ;
 BEGIN
-    SELECT 'epoch'::TIMESTAMP + '1 second'::INTERVAL * (number * floor(extract(EPOCH FROM timestamp_in) / number)) INTO timestamp_out;
+	SELECT ('epoch'::TIMESTAMP + '1 second'::INTERVAL * (number * floor(extract(EPOCH FROM timestamp_in) / number))) AT TIME ZONE 'utc' INTO timestamp_out;
     RETURN timestamp_out;
 END;
 $$

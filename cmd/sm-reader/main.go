@@ -80,10 +80,12 @@ func writeTelegramStream(ch chan smr.Telegram, nc *nats.Conn) {
 	for {
 		telegram := <-ch
 
-		json, err := json.MarshalIndent(telegram, "", "\t")
+		json, err := json.Marshal(telegram)
 		if err != nil {
 			log.Error(err)
 		}
+
+		log.Info(json)
 
 		err = nc.Publish("sm-telegram", json)
 		if err != nil {
