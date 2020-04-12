@@ -32,6 +32,20 @@ sudo systemctl enable sm-reader
 ```
 
 # Install sm-postgres
+
+Create a user and the database:
+```
+sudo -u postgres psql
+postgres=# create database timeseries;
+postgres=# create user timeseries with encrypted password '<password>';
+postgres=# grant all privileges on database timeseries to timeseries;
+```
+
+Run the ddl script as the new user against the new database: 
+```
+psql -h localhost -U timeseries -d timeseries -f measurement_ddl.sql
+```
+
 ```
 sudo mkdir -p /opt/sm-postgres/bin
 sudo mkdir /etc/opt/sm-postgres
@@ -45,7 +59,8 @@ Description=Smart meter postgres update
 After=nats.service
 
 [Service]
-Environment="DATABASE_URL=postgres://user:pass@host:5432/dbname"
+# Url looks like: postgres://user:pass@host:5432/dbname"
+Environment="DATABASE_URL=postgres://timeseries:<pass>@localhost:5432/timeseries"
 ExecStart=/opt/sm-postgres/bin/sm-postgres
 WorkingDirectory=/etc/opt/sm-postgres
 StandardOutput=inherit
