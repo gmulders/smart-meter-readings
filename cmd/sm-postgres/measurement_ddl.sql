@@ -10,7 +10,7 @@
 -- `psql -f measurement_ddl.sql <database-name>`
 
 -- Usage:
--- To insert or query data, use the measurement view. To query aggregated data use the aggregate_value_300 table.
+-- To insert or query data, use the measurement view. To query aggregated data use the aggregate_value_* tables.
 
 CREATE TABLE metric (
     id SERIAL,
@@ -18,6 +18,8 @@ CREATE TABLE metric (
     dimensions JSONB NOT NULL
 );
 
+ALTER TABLE metric ADD CONSTRAINT pk_metric PRIMARY KEY (id);
+ALTER TABLE metric ADD CONSTRAINT uq_metric_id_name_dimensions UNIQUE (id, name, dimensions);
 ALTER TABLE metric ADD CONSTRAINT uq_metric_name_dimensions UNIQUE (name, dimensions);
 CREATE INDEX ix_metric_name_id ON metric USING BTREE (name, id);
 CREATE INDEX ix_metric_dimensions ON metric USING GIN (dimensions);
@@ -30,6 +32,7 @@ CREATE TABLE value (
 );
 
 ALTER TABLE value ADD CONSTRAINT uq_value_metric_id_timestamp UNIQUE (metric_id, timestamp);
+ALTER TABLE value ADD CONSTRAINT fk_value_metric FOREIGN KEY (metric_id) REFERENCES metric (id);
 CREATE INDEX ON value USING BTREE (metric_id, timestamp);
 
 CREATE VIEW measurement AS
@@ -82,19 +85,6 @@ INSERT INTO value (
     NEW.meta
 );
 
-
-CREATE TABLE aggregate_value_300 (
-    timestamp TIMESTAMPTZ NOT NULL,
-    metric_id INT NOT NULL,
-    count DOUBLE PRECISION NOT NULL,
-    sum DOUBLE PRECISION NOT NULL,
-    sum_squares DOUBLE PRECISION NOT NULL,
-    min DOUBLE PRECISION NOT NULL,
-    max DOUBLE PRECISION NOT NULL
-);
-
-ALTER TABLE aggregate_value_300 ADD CONSTRAINT uq_aggregate_value_300_metric_id_timestamp UNIQUE (metric_id, timestamp);
-
 CREATE FUNCTION time_floor(timestamp_in TIMESTAMPTZ, number int)
 RETURNS TIMESTAMPTZ AS
 $$
@@ -108,11 +98,27 @@ $$
 LANGUAGE 'plpgsql';
 
 
-CREATE FUNCTION summarise_300()
+-- 5 minutes
+CREATE TABLE aggregate_value_5m (
+    timestamp TIMESTAMPTZ NOT NULL,
+    metric_id INT NOT NULL,
+    count DOUBLE PRECISION NOT NULL,
+    sum DOUBLE PRECISION NOT NULL,
+    sum_squares DOUBLE PRECISION NOT NULL,
+    min DOUBLE PRECISION NOT NULL,
+    max DOUBLE PRECISION NOT NULL
+);
+
+ALTER TABLE aggregate_value_5m ADD CONSTRAINT fk_aggregate_value_5m_metric FOREIGN KEY (metric_id) REFERENCES metric (id);
+ALTER TABLE aggregate_value_5m ADD CONSTRAINT uq_aggregate_value_5m_metric_id_timestamp UNIQUE (metric_id, timestamp);
+CREATE INDEX ON aggregate_value_5m USING BTREE (metric_id, timestamp);
+
+
+CREATE FUNCTION summarise_5m()
 RETURNS TRIGGER AS
 $$
 BEGIN
-    INSERT INTO aggregate_value_300 VALUES (
+    INSERT INTO aggregate_value_5m VALUES (
         time_floor(NEW.timestamp, 300),
         NEW.metric_id,
         1,
@@ -123,19 +129,217 @@ BEGIN
     )
     ON CONFLICT (metric_id, timestamp)
     DO UPDATE SET
-        count = aggregate_value_300.count + EXCLUDED.count,
-        sum = aggregate_value_300.sum + EXCLUDED.sum,
-        sum_squares = aggregate_value_300.sum_squares + EXCLUDED.sum_squares,
-        min = LEAST (aggregate_value_300.min, EXCLUDED.min),
-        max = GREATEST (aggregate_value_300.max, EXCLUDED.max);
+        count = aggregate_value_5m.count + EXCLUDED.count,
+        sum = aggregate_value_5m.sum + EXCLUDED.sum,
+        sum_squares = aggregate_value_5m.sum_squares + EXCLUDED.sum_squares,
+        min = LEAST (aggregate_value_5m.min, EXCLUDED.min),
+        max = GREATEST (aggregate_value_5m.max, EXCLUDED.max);
 	RETURN NULL;
 END;
 $$
 LANGUAGE 'plpgsql';
 
 
-CREATE TRIGGER summarise_300_t
+CREATE TRIGGER summarise_5m_t
 AFTER INSERT ON value
 FOR EACH ROW
-EXECUTE PROCEDURE summarise_300 ();
+EXECUTE PROCEDURE summarise_5m();
+
+
+-- 30 minutes
+CREATE TABLE aggregate_value_30m (
+    timestamp TIMESTAMPTZ NOT NULL,
+    metric_id INT NOT NULL,
+    count DOUBLE PRECISION NOT NULL,
+    sum DOUBLE PRECISION NOT NULL,
+    sum_squares DOUBLE PRECISION NOT NULL,
+    min DOUBLE PRECISION NOT NULL,
+    max DOUBLE PRECISION NOT NULL
+);
+
+ALTER TABLE aggregate_value_30m ADD CONSTRAINT fk_aggregate_value_30m_metric FOREIGN KEY (metric_id) REFERENCES metric (id);
+ALTER TABLE aggregate_value_30m ADD CONSTRAINT uq_aggregate_value_30m_metric_id_timestamp UNIQUE (metric_id, timestamp);
+CREATE INDEX ON aggregate_value_30m USING BTREE (metric_id, timestamp);
+
+
+CREATE FUNCTION summarise_30m()
+RETURNS TRIGGER AS
+$$
+BEGIN
+    INSERT INTO aggregate_value_30m VALUES (
+        time_floor(NEW.timestamp, 1800),
+        NEW.metric_id,
+        1,
+        NEW.value,
+        NEW.value * NEW.value,
+        NEW.value,
+        NEW.value
+    )
+    ON CONFLICT (metric_id, timestamp)
+    DO UPDATE SET
+        count = aggregate_value_30m.count + EXCLUDED.count,
+        sum = aggregate_value_30m.sum + EXCLUDED.sum,
+        sum_squares = aggregate_value_30m.sum_squares + EXCLUDED.sum_squares,
+        min = LEAST (aggregate_value_30m.min, EXCLUDED.min),
+        max = GREATEST (aggregate_value_30m.max, EXCLUDED.max);
+	RETURN NULL;
+END;
+$$
+LANGUAGE 'plpgsql';
+
+
+CREATE TRIGGER summarise_30m_t
+AFTER INSERT ON value
+FOR EACH ROW
+EXECUTE PROCEDURE summarise_30m();
+
+
+-- 3 hours
+CREATE TABLE aggregate_value_3h (
+    timestamp TIMESTAMPTZ NOT NULL,
+    metric_id INT NOT NULL,
+    count DOUBLE PRECISION NOT NULL,ƒ
+    sum DOUBLE PRECISION NOT NULL,
+    sum_squares DOUBLE PRECISION NOT NULL,
+    min DOUBLE PRECISION NOT NULL,
+    max DOUBLE PRECISION NOT NULL
+);
+
+ALTER TABLE aggregate_value_3h ADD CONSTRAINT fk_aggregate_value_3h_metric FOREIGN KEY (metric_id) REFERENCES metric (id);
+ALTER TABLE aggregate_value_3h ADD CONSTRAINT uq_aggregate_value_3h_metric_id_timestamp UNIQUE (metric_id, timestamp);
+CREATE INDEX ON aggregate_value_3h USING BTREE (metric_id, timestamp);
+
+
+CREATE FUNCTION summarise_3h()
+RETURNS TRIGGER AS
+$$
+BEGIN
+    INSERT INTO aggregate_value_3h VALUES (
+        time_floor(NEW.timestamp, 10800),
+        NEW.metric_id,
+        1,
+        NEW.value,
+        NEW.value * NEW.value,
+        NEW.value,
+        NEW.value
+    )
+    ON CONFLICT (metric_id, timestamp)
+    DO UPDATE SET
+        count = aggregate_value_3h.count + EXCLUDED.count,
+        sum = aggregate_value_3h.sum + EXCLUDED.sum,
+        sum_squares = aggregate_value_3h.sum_squares + EXCLUDED.sum_squares,
+        min = LEAST (aggregate_value_3h.min, EXCLUDED.min),
+        max = GREATEST (aggregate_value_3h.max, EXCLUDED.max);
+	RETURN NULL;
+END;
+$$
+LANGUAGE 'plpgsql';
+
+
+CREATE TRIGGER summarise_3h_t
+AFTER INSERT ON value
+FOR EACH ROW
+EXECUTE PROCEDURE summarise_3h();
+
+
+
+
+-- 1 day
+CREATE TABLE aggregate_value_1d (
+    timestamp TIMESTAMPTZ NOT NULL,
+    metric_id INT NOT NULL,
+    count DOUBLE PRECISION NOT NULL,ƒ
+    sum DOUBLE PRECISION NOT NULL,
+    sum_squares DOUBLE PRECISION NOT NULL,
+    min DOUBLE PRECISION NOT NULL,
+    max DOUBLE PRECISION NOT NULL
+);
+
+ALTER TABLE aggregate_value_1d ADD CONSTRAINT fk_aggregate_value_1d_metric FOREIGN KEY (metric_id) REFERENCES metric (id);
+ALTER TABLE aggregate_value_1d ADD CONSTRAINT uq_aggregate_value_1d_metric_id_timestamp UNIQUE (metric_id, timestamp);
+CREATE INDEX ON aggregate_value_1d USING BTREE (metric_id, timestamp);
+
+
+CREATE FUNCTION summarise_1d()
+RETURNS TRIGGER AS
+$$
+BEGIN
+    INSERT INTO aggregate_value_1d VALUES (
+        time_floor(NEW.timestamp, 86400),
+        NEW.metric_id,
+        1,
+        NEW.value,
+        NEW.value * NEW.value,
+        NEW.value,
+        NEW.value
+    )
+    ON CONFLICT (metric_id, timestamp)
+    DO UPDATE SET
+        count = aggregate_value_1d.count + EXCLUDED.count,
+        sum = aggregate_value_1d.sum + EXCLUDED.sum,
+        sum_squares = aggregate_value_1d.sum_squares + EXCLUDED.sum_squares,
+        min = LEAST (aggregate_value_1d.min, EXCLUDED.min),
+        max = GREATEST (aggregate_value_1d.max, EXCLUDED.max);
+	RETURN NULL;
+END;
+$$
+LANGUAGE 'plpgsql';
+
+
+CREATE TRIGGER summarise_1d_t
+AFTER INSERT ON value
+FOR EACH ROW
+EXECUTE PROCEDURE summarise_1d();
+
+
+
+
+
+
+-- 1 week
+CREATE TABLE aggregate_value_1w (
+    timestamp TIMESTAMPTZ NOT NULL,
+    metric_id INT NOT NULL,
+    count DOUBLE PRECISION NOT NULL,ƒ
+    sum DOUBLE PRECISION NOT NULL,
+    sum_squares DOUBLE PRECISION NOT NULL,
+    min DOUBLE PRECISION NOT NULL,
+    max DOUBLE PRECISION NOT NULL
+);
+
+ALTER TABLE aggregate_value_1w ADD CONSTRAINT fk_aggregate_value_1w_metric FOREIGN KEY (metric_id) REFERENCES metric (id);
+ALTER TABLE aggregate_value_1w ADD CONSTRAINT uq_aggregate_value_1w_metric_id_timestamp UNIQUE (metric_id, timestamp);
+CREATE INDEX ON aggregate_value_1w USING BTREE (metric_id, timestamp);
+
+
+CREATE FUNCTION summarise_1w()
+RETURNS TRIGGER AS
+$$
+BEGIN
+    INSERT INTO aggregate_value_1w VALUES (
+        time_floor(NEW.timestamp, 604800),
+        NEW.metric_id,
+        1,
+        NEW.value,
+        NEW.value * NEW.value,
+        NEW.value,
+        NEW.value
+    )
+    ON CONFLICT (metric_id, timestamp)
+    DO UPDATE SET
+        count = aggregate_value_1w.count + EXCLUDED.count,
+        sum = aggregate_value_1w.sum + EXCLUDED.sum,
+        sum_squares = aggregate_value_1w.sum_squares + EXCLUDED.sum_squares,
+        min = LEAST (aggregate_value_1w.min, EXCLUDED.min),
+        max = GREATEST (aggregate_value_1w.max, EXCLUDED.max);
+	RETURN NULL;
+END;
+$$
+LANGUAGE 'plpgsql';
+
+
+CREATE TRIGGER summarise_1w_t
+AFTER INSERT ON value
+FOR EACH ROW
+EXECUTE PROCEDURE summarise_1w();
 
