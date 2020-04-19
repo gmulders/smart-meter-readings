@@ -1,0 +1,15 @@
+canvas.plot {
+	width: 400px;
+}
+
+div.wrapper {
+	min-height: 400px;
+	padding: 16px 0;
+	position: relative;
+}
+
+div.content {
+    max-width: 1000px;
+    margin: auto;
+    padding: 16px 32px;
+}

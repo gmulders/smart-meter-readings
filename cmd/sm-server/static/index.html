@@ -1,0 +1,139 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <title></title>
+  <meta name="description" content="">
+  <meta name="author" content="">
+
+  <link rel="stylesheet" href="css/reset.css">
+  <link rel="stylesheet" href="css/style.css">
+
+</head>
+
+<body>
+
+	<div class="content">
+		<h1>Last day</h1>
+		<div class="wrapper">
+			<canvas id="last-day" class="plot"></canvas>
+		</div>
+		<h1>Last week</h1>
+		<div class="wrapper">
+			<canvas id="last-week" class="plot"></canvas>
+		</div>
+		<h1>Last month</h1>
+		<div class="wrapper">
+			<canvas id="last-month" class="plot"></canvas>
+		</div>
+	</div>
+
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.3/Chart.bundle.min.js" integrity="sha256-TQq84xX6vkwR0Qs1qH5ADkP+MvH0W+9E7TdHJsoIQiM=" crossorigin="anonymous"></script>
+	<script>
+		createGraph("P1D", "last-day", "hour");
+		createGraph("P1W", "last-week", "day")
+		createGraph("P1M", "last-month", "day")
+
+		function createGraph(duration, chartId, unit) {
+			var req = new XMLHttpRequest();
+			req.responseType = 'json';
+			req.open('GET', "/api/readings?duration=" + duration + "&metric=power-consumption&metric=power-consumption-phase-1&metric=power-consumption-phase-2&metric=power-consumption-phase-3", true);
+			req.onload  = function() {
+				drawChart(chartId, req.response, unit)
+			};
+			req.send(null);
+		}
+
+		function transparentize(color, opacity) {
+			var alpha = opacity === undefined ? 0.2 : 1 - opacity;
+			return Color(color).alpha(alpha).rgbString();
+		}
+
+		var chartColors = {
+			red: 'rgb(255, 99, 132)',
+			orange: 'rgb(255, 159, 64)',
+			yellow: 'rgb(255, 205, 86)',
+			green: 'rgb(75, 192, 192)',
+			blue: 'rgb(54, 162, 235)',
+			purple: 'rgb(153, 102, 255)',
+			grey: 'rgb(201, 203, 207)'
+		};
+
+		var colorArray = [
+			chartColors.red,
+			chartColors.orange,
+			chartColors.yellow,
+			chartColors.green,
+			chartColors.blue,
+			chartColors.purple,
+			chartColors.grey
+		];
+
+		function drawChart(chartId, rawData, unit) {
+			var dataSets = [];
+
+			var colorIndex = 0;
+			const keys = Object.keys(rawData)
+			for (const key of keys) {
+
+				var data = rawData[key];
+				for (var i = 0; i < data.length; i++) {
+					var elm = data[i]
+					elm.x = elm.timestamp;
+					elm.y = elm.sum / elm.count;
+				}
+				console.log(key);
+				var color = colorArray[colorIndex++ % colorArray.length];
+				dataSets.push({
+					label: key,
+					backgroundColor: transparentize(color),
+					borderColor: color,
+					pointRadius: 0,
+					data: data
+				})
+			}
+
+			var ctx = document.getElementById(chartId).getContext('2d');
+			var chart = new Chart(ctx, {
+				// The type of chart we want to create
+				type: 'line',
+
+				// The data for our dataset
+				data: { datasets: dataSets },
+
+				// Configuration options go here
+				options: {
+					maintainAspectRatio: false,
+					animation: false,
+					scales: {
+						yAxes: [{
+							scaleLabel: {
+								display: true,
+								labelString: 'Power (W)'
+							}
+						}],
+						xAxes: [{
+							type: 'time',
+							time: {
+								displayFormats: {
+									hour: 'HH:mm'
+								},
+								unit: unit
+							}
+						}]
+					}
+				}
+			});
+		}
+	</script>
+
+</body>
+</html>
+
+
+
+
+
+
