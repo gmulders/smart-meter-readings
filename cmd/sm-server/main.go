@@ -26,6 +26,7 @@ func main() {
 
 	router := httprouter.New()
 	router.GET("/api/readings", readings)
+	router.GET("/api/monthly", monthly)
 
 	http.Handle("/api/", router)
 	http.Handle("/", fs)
@@ -181,6 +182,137 @@ func readings(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		w.Write([]byte(fmt.Sprintf("{\"timestamp\":\"%s\",\"count\":%g,\"sum\":%g,\"sumSquares\":%g,\"min\":%g,\"max\":%g}",
 			timestamp.Format(time.RFC3339), count, sum, sumSquares, min, max)))
 		flusher.Flush()
+		previousMetricID = metricID
+	}
+
+	if previousMetricID != -1 {
+		w.Write([]byte("\n]"))
+	}
+	w.Write([]byte("\n}"))
+
+	if rows.Err() != nil {
+		log.Error("Something bad happenend while reading the rows:", rows.Err())
+		return
+	}
+}
+
+func monthly(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	flusher, _ := w.(http.Flusher)
+	w.Header().Add("X-Content-Type-Options", "nosniff")
+
+	metrics := r.URL.Query()["metric"]
+
+	// Controleer lengte van metrics
+	if len(metrics) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Missing metrics"))
+		return
+	}
+
+	var unknownMetrics []string
+	for i := 0; i < len(metrics); i++ {
+		if _, present := possibleMetrics[metrics[i]]; !present {
+			unknownMetrics = append(unknownMetrics, metrics[i])
+		}
+	}
+
+	if len(unknownMetrics) > 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Unknown metrics " + strings.Join(unknownMetrics, ", ")))
+		return
+	}
+
+	// postgres://YourUserName:YourPassword@YourHost:5432/YourDatabase
+	config, err := pgx.ParseConfig(os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Errorf("Unable to parse connection string: %v", err)
+	}
+	config.Logger = logrusadapter.NewLogger(log.New())
+
+	conn, err := pgx.ConnectConfig(context.Background(), config)
+	if err != nil {
+		log.Errorf("Unable to establish connection: %v\n", err)
+		os.Exit(1)
+	}
+	defer conn.Close(context.Background())
+
+	metricsString := "'" + strings.Join(metrics, "','") + "'"
+
+	selectTimestampSQL :=
+		"select timestamp " +
+		"from value " +
+		"where " +
+		"        metric_id = inner_metric.id " +
+		"    and timestamp < date_trunc('month', CURRENT_DATE) - make_interval(months => num) " +
+		"order by timestamp desc " +
+		"limit 1"
+
+	selectTimestampSeriesPerMetricSQL :=
+		"select " +
+		"    (" + selectTimestampSQL + ") as timestamp, " +
+		"    inner_metric.id as metric_id, " +
+		"    inner_metric.name as metric_name " +
+		"from generate_series(-1, 60) num " +
+		"cross join metric as inner_metric " +
+		"where name in (" + metricsString + ")"
+
+	sql :=
+		"select " +
+		"    value.timestamp, " +
+		"    value.value," +
+		"    value.metric_id, " +
+		"    sub.metric_name " +
+		"from value " +
+		"join ( " + selectTimestampSeriesPerMetricSQL + ") as sub on " +
+		"    value.timestamp = sub.timestamp and value.metric_id = sub.metric_id " +
+		"order by value.metric_id, value.timestamp"
+
+	rows, err := conn.Query(context.Background(), sql)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("Could not connect to database %v", err)))
+		return
+	}
+	defer rows.Close()
+
+	w.Header().Set("Transfer-Encoding", "chunked")
+
+	w.Write([]byte("{\n"))
+
+	previousMetricID := -1
+	previousValue := 0.0
+	count := 0
+
+	for rows.Next() {
+		var timestamp time.Time
+		var value float64
+		var metricID int
+		var name string
+
+		err = rows.Scan(&timestamp, &value, &metricID, &name)
+		if err != nil {
+			log.Info("Could not scan row.")
+			return
+		}
+
+		if metricID != previousMetricID {
+			count = 0
+			previousValue = value
+			if previousMetricID != -1 {
+				w.Write([]byte("],\n"))
+			}
+			w.Write([]byte("\"" + name + "\":[\n"))
+			previousMetricID = metricID
+			continue
+		} else if count > 0 {
+			w.Write([]byte(",\n"))
+		}
+
+		w.Write([]byte(fmt.Sprintf("{\"year\":\"%d\",\"month\":%d,\"value\":%g}",
+				timestamp.Year(), timestamp.Month(), value - previousValue)))
+		flusher.Flush()
+		count++
+		previousValue = value
 		previousMetricID = metricID
 	}
 

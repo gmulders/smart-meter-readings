@@ -28,6 +28,11 @@
 		<div class="wrapper">
 			<canvas id="last-month" class="plot"></canvas>
 		</div>
+
+		<h1>Monthly usage</h1>
+		<div class="wrapper">
+			<canvas id="monthly" class="plot"></canvas>
+		</div>
 	</div>
 
 	<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.3/Chart.bundle.min.js" integrity="sha256-TQq84xX6vkwR0Qs1qH5ADkP+MvH0W+9E7TdHJsoIQiM=" crossorigin="anonymous"></script>
@@ -36,10 +41,65 @@
 		createGraph("P1W", "last-week", "day")
 		createGraph("P1M", "last-month", "day")
 
+
+		var req = new XMLHttpRequest();
+		req.responseType = 'json';
+		req.open('GET', "/api/monthly?metric=power-consumed-tariff-1&metric=power-consumed-tariff-2&metric=power-delivered-tariff-1&metric=power-delivered-tariff-2")
+		req.onload  = function() {
+			// Draw bar graph
+			var rawData = req.response
+
+			var dataSets = [];
+                        var colorIndex = 0;
+
+                        const keys = Object.keys(rawData)
+                        for (const key of keys) {
+                                var sign = key.includes('delivered') ? -1 : 1
+				var values = [];
+                                var data = rawData[key];
+                                for (var i = 0; i < data.length; i++) {
+                                        values.push(sign * data[i].value)
+                                }
+
+                                console.log(key);
+                                var color = colorArray[colorIndex++ % colorArray.length];
+                                dataSets.push({
+                                        label: key,
+                                        backgroundColor: color,
+                                        borderColor: color,
+					stack: key[key.length -1],
+                                        data: values
+                                })
+                        }
+
+			var ctx = document.getElementById('monthly').getContext('2d');
+			window.myBar = new Chart(ctx, {
+				type: 'bar',
+				// TODO: Labels genereren bij datasets, mooi zou zijn om de offset maand (dus hieronder mei) dynamisch te bepalen en om er het jaartal aan te plakken.
+				data: { labels: ["Mei", "Juni", "Juli", "Augustus", "September", "Oktober", "November", "December", "Januari", "Februari", "Maart", "April"], datasets: dataSets },
+				options: {
+					responsive: true,
+					legend: {
+						position: 'top',
+					},
+					scales: {
+						xAxes: [{
+							stacked: true,
+						}],
+						yAxes: [{
+							stacked: true
+						}]
+					}
+				}
+			});
+		};
+		req.send(null);
+
+
 		function createGraph(duration, chartId, unit) {
 			var req = new XMLHttpRequest();
 			req.responseType = 'json';
-			req.open('GET', "/api/readings?duration=" + duration + "&metric=power-consumption&metric=power-consumption-phase-1&metric=power-consumption-phase-2&metric=power-consumption-phase-3", true);
+			req.open('GET', "/api/readings?duration=" + duration + "&metric=power-consumption&metric=power-consumption-phase-1&metric=power-consumption-phase-2&metric=power-consumption-phase-3&metric=power-delivery&metric=power-delivery-phase-3", true);
 			req.onload  = function() {
 				drawChart(chartId, req.response, unit)
 			};
@@ -77,12 +137,12 @@
 			var colorIndex = 0;
 			const keys = Object.keys(rawData)
 			for (const key of keys) {
-
+				var sign = key.includes('delivery') ? -1 : 1
 				var data = rawData[key];
 				for (var i = 0; i < data.length; i++) {
 					var elm = data[i]
 					elm.x = elm.timestamp;
-					elm.y = elm.sum / elm.count;
+					elm.y = sign * elm.sum / elm.count;
 				}
 				console.log(key);
 				var color = colorArray[colorIndex++ % colorArray.length];
