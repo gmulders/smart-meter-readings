@@ -2,30 +2,49 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
+	"context"
 	"os"
 	"strconv"
-	"time"
 
+	"github.com/eclipse/paho.golang/autopaho"
 	smr "github.com/gmulders/smart-meter-readings"
-	nats "github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 	"github.com/tarm/serial"
 )
 
+const (
+	mqttTopicEnvName  = "MQTT_TOPIC"
+	serialPortEnvName = "SERIAL_PORT"
+)
+
 func main() {
 
-	if len(os.Args) < 2 {
-		log.Fatal("Expecting name of usb device")
+	channel := make(chan smr.Telegram)
+	handler := smr.TelegramHandler{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	clientConfig := smr.BuildPahoClientConfig()
+
+	mqttTopic := os.Getenv(mqttTopicEnvName)
+	if mqttTopic == "" {
+		log.Fatalf("Empty string %s '%s'", mqttTopicEnvName, mqttTopic)
 	}
 
+	serialPort := os.Getenv(serialPortEnvName)
+	if serialPort == "" {
+		log.Fatalf("Empty string %s '%s'", serialPortEnvName, serialPort)
+	}
 	config := &serial.Config{
-		Name: os.Args[1],
+		Name: serialPort,
 		Baud: 115200,
+	}
+
+	// Connect to the broker - this will return immediately after initiating the connection process
+	cm, err := autopaho.NewConnection(ctx, clientConfig)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	serial, err := serial.OpenPort(config)
@@ -35,129 +54,9 @@ func main() {
 
 	reader := bufio.NewReader(serial)
 
-	// Connect to a server
-	nc, err := nats.Connect(nats.DefaultURL)
-	if err != nil {
-		log.Errorf("Could not connect to NATS: %v", err)
-		return
-	}
-	defer nc.Close()
-
-	channel := make(chan smr.Telegram)
-
-	go writeTelegramStream(channel, nc)
+	go smr.WriteMeasurementStream[smr.Telegram](ctx, channel, handler, cm, mqttTopic)
 
 	readTelegramStream(reader, channel)
-}
-
-var zeroTelegram = createZeroTelegram()
-
-func createZeroTelegram() smr.Telegram {
-	telegram := smr.Telegram{}
-	telegram.Timestamp = time.Unix(0, 0)
-	return telegram
-}
-
-func determineFilename(ts time.Time) (string, error) {
-	// Return the first name for which no file exists
-	for i := 1; i <= 999; i++ {
-		filename := fmt.Sprintf("meterstanden-%d-%02d.%03d.bin", ts.Year(), ts.Month(), i)
-		if _, err := os.Stat(filename); os.IsNotExist(err) {
-			return filename, nil
-		}
-	}
-	return "", errors.New("Could not determine filename")
-}
-
-func writeTelegramStream(ch chan smr.Telegram, nc *nats.Conn) {
-
-	lastMonth := -1
-	var writer *bufio.Writer
-	var file *os.File
-	var filename string
-	var previousTelegram smr.Telegram
-
-	for {
-		telegram := <-ch
-
-		json, err := json.Marshal(telegram)
-		if err != nil {
-			log.Error(err)
-		}
-
-		log.Info(json)
-
-		err = nc.Publish("sm-telegram", json)
-		if err != nil {
-			log.Errorf("Could not publish 'p1-telegram' event to NATS: %v", err)
-			// We continue with saving the telegram, so that we don't lose data
-		}
-
-		currentMonth := int(telegram.Timestamp.Month())
-
-		if currentMonth != lastMonth {
-			lastMonth = currentMonth
-			if file != nil {
-				log.Info("Closing the file")
-				writer.Flush()
-				file.Close()
-
-				// Start a go routine to zip the old file
-				go gzipFile(filename)
-			}
-
-			filename, err = determineFilename(telegram.Timestamp)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			newFile, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			file = newFile
-			// Create a buffering writer
-			writer = bufio.NewWriter(file)
-
-			// We start a new file, but we need to have a telegram to substract from the current telegram,
-			// so we take a telegram with only zero values.
-			previousTelegram = zeroTelegram
-		}
-
-		writeTelegram(writer, telegram, previousTelegram)
-
-		// Flush the data to the file. This is relatively expensive since we only write a couple of bytes,
-		// however we don't lose data this way.
-		writer.Flush()
-
-		previousTelegram = telegram
-	}
-}
-
-func writeTelegram(writer io.Writer, telegram smr.Telegram, previousTelegram smr.Telegram) {
-	writeValue(writer, telegram.Timestamp.Unix(), previousTelegram.Timestamp.Unix())
-	writeValue(writer, telegram.ConsumedTariff1, previousTelegram.ConsumedTariff1)
-	writeValue(writer, telegram.ConsumedTariff2, previousTelegram.ConsumedTariff2)
-	writeValue(writer, telegram.DeliveredTariff1, previousTelegram.DeliveredTariff1)
-	writeValue(writer, telegram.DeliveredTariff2, previousTelegram.DeliveredTariff2)
-	writeValue(writer, int64(telegram.CurrentTariff), int64(previousTelegram.CurrentTariff))
-	writeValue(writer, telegram.PowerConsumption, previousTelegram.PowerConsumption)
-	writeValue(writer, telegram.PowerDelivery, previousTelegram.PowerDelivery)
-	writeValue(writer, telegram.PowerConsumptionPhase1, previousTelegram.PowerConsumptionPhase1)
-	writeValue(writer, telegram.PowerConsumptionPhase2, previousTelegram.PowerConsumptionPhase2)
-	writeValue(writer, telegram.PowerConsumptionPhase3, previousTelegram.PowerConsumptionPhase3)
-	writeValue(writer, telegram.PowerDeliveryPhase1, previousTelegram.PowerDeliveryPhase1)
-	writeValue(writer, telegram.PowerDeliveryPhase2, previousTelegram.PowerDeliveryPhase2)
-	writeValue(writer, telegram.PowerDeliveryPhase3, previousTelegram.PowerDeliveryPhase3)
-}
-
-func writeValue(writer io.Writer, newValue int64, oldValue int64) {
-	buff := make([]byte, binary.MaxVarintLen64)
-	n := binary.PutVarint(buff, newValue-oldValue)
-	if _, err := writer.Write(buff[:n]); err != nil {
-		log.Fatal(err)
-	}
 }
 
 func readTelegramStream(reader *bufio.Reader, ch chan smr.Telegram) {
