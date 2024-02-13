@@ -4,6 +4,9 @@ package meterstanden
 import (
 	"io"
 	"time"
+
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+	"github.com/influxdata/influxdb-client-go/v2/api/write"
 )
 
 type SolarReadout struct {
@@ -26,6 +29,32 @@ type SolarReadout struct {
 
 type SolarReadoutHandler struct {
 	IMeasurementHandler[SolarReadout]
+}
+
+func (h SolarReadoutHandler) CreatePoint(m SolarReadout) *write.Point {
+	return influxdb2.NewPoint(
+		"solar",
+		map[string]string{
+			"source": "solar-edge-1",
+		},
+		map[string]interface{}{
+			"current":       float64(m.Current) / 1000.0,
+			"l1current":     float64(m.L1Current) / 1000.0,
+			"l1voltage":     float64(m.L1Voltage) / 1000.0,
+			"l1nvoltage":    float64(m.L1NVoltage) / 1000.0,
+			"powerAC":       float64(m.PowerAC),
+			"frequency":     float64(m.Frequency) / 1000.0,
+			"powerApparent": float64(m.PowerApparent),
+			"powerReactive": float64(m.PowerReactive),
+			"powerFactor":   float64(m.PowerFactor) / 10000.0,
+			"energyTotal":   float64(m.EnergyTotal),
+			"currentDC":     float64(m.CurrentDC) / 1000.0,
+			"voltageDC":     float64(m.VoltageDC) / 1000.0,
+			"powerDC":       float64(m.PowerDC),
+			"temperature":   float64(m.Temperature) / 100.0,
+		},
+		m.Timestamp,
+	)
 }
 
 func (h SolarReadoutHandler) GetTimestamp(t SolarReadout) time.Time {

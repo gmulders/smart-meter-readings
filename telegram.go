@@ -3,6 +3,9 @@ package meterstanden
 import (
 	"io"
 	"time"
+
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+	"github.com/influxdata/influxdb-client-go/v2/api/write"
 )
 
 // Telegram represents a P1 telegram
@@ -25,6 +28,31 @@ type Telegram struct {
 
 type TelegramHandler struct {
 	IMeasurementHandler[Telegram]
+}
+
+func (h TelegramHandler) CreatePoint(m Telegram) *write.Point {
+	return influxdb2.NewPoint(
+		"metering",
+		map[string]string{
+			"source": "p1-meter",
+		},
+		map[string]interface{}{
+			"consumedTariff1":        float64(m.ConsumedTariff1),
+			"consumedTariff2":        float64(m.ConsumedTariff2),
+			"deliveredTariff1":       float64(m.DeliveredTariff1),
+			"deliveredTariff2":       float64(m.DeliveredTariff2),
+			"currentTarriff":         m.CurrentTariff,
+			"powerConsumption":       float64(m.PowerConsumption),
+			"powerDelivery":          float64(m.PowerDelivery),
+			"powerConsumptionPhase1": float64(m.PowerConsumptionPhase1),
+			"powerConsumptionPhase2": float64(m.PowerConsumptionPhase2),
+			"powerConsumptionPhase3": float64(m.PowerConsumptionPhase3),
+			"powerDeliveryPhase1":    float64(m.PowerDeliveryPhase1),
+			"powerDeliveryPhase2":    float64(m.PowerDeliveryPhase2),
+			"powerDeliveryPhase3":    float64(m.PowerDeliveryPhase3),
+		},
+		m.Timestamp,
+	)
 }
 
 func (h TelegramHandler) GetTimestamp(t Telegram) time.Time {

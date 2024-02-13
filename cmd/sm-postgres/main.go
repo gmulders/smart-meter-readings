@@ -6,14 +6,83 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/eclipse/paho.golang/autopaho"
+	"github.com/eclipse/paho.golang/paho"
 	smr "github.com/gmulders/smart-meter-readings"
 	"github.com/jackc/pgx/v4"
-	nats "github.com/nats-io/nats.go"
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	mqttTopicEnvName = "MQTT_TOPIC"
+)
+
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	config := smr.BuildPahoClientConfig()
+	config.OnConnectionUp = func(cm *autopaho.ConnectionManager, connAck *paho.Connack) {
+		log.Info("mqtt connection up")
+		if _, err := cm.Subscribe(context.Background(), &paho.Subscribe{
+			Subscriptions: map[string]paho.SubscribeOptions{
+				"DIT IS DE TOPIC NAAM!!": {QoS: 1}, // At least once
+			},
+		}); err != nil {
+			log.Error("failed to subscribe (%s). This is likely to mean no messages will be received.", err)
+			return
+		}
+		log.Info("mqtt subscription made")
+	}
+	config.ClientConfig.Router = paho.NewSingleHandlerRouter(func(p *paho.Publish) {
+		m.
+	})
+
+	// cliCfg := autopaho.ClientConfig{
+	// 	OnConnectionUp: func(cm *autopaho.ConnectionManager, connAck *paho.Connack) {
+	// 		fmt.Println("mqtt connection up")
+	// 		if _, err := cm.Subscribe(context.Background(), &paho.Subscribe{
+	// 			Subscriptions: map[string]paho.SubscribeOptions{
+	// 				cfg.topic: {QoS: cfg.qos},
+	// 			},
+	// 		}); err != nil {
+	// 			fmt.Printf("failed to subscribe (%s). This is likely to mean no messages will be received.", err)
+	// 			return
+	// 		}
+	// 		fmt.Println("mqtt subscription made")
+	// 	},
+
+	// 	ClientConfig: paho.ClientConfig{
+	// 		Router: paho.NewSingleHandlerRouter(func(m *paho.Publish) {
+	// 			h.handle(m)
+	// 		}),
+	// 	},
+	// }
+
+	mqttTopic := os.Getenv(mqttTopicEnvName)
+	if mqttTopic == "" {
+		log.Fatalf("Empty string %s '%s'", mqttTopicEnvName, mqttTopic)
+	}
+
+	// Connect to the broker - this will return immediately after initiating the connection process
+	cm, err := autopaho.NewConnection(ctx, config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// AwaitConnection will return immediately if connection is up; adding this call stops publication whilst
+	// connection is unavailable.
+	asd, cancel := context.WithTimeout(ctx, 1*time.Second)
+	err = cm.AwaitConnection(asd)
+	cancel()
+
+	cm.Subscribe(ctx, &paho.Subscribe{})
+	
+
+
+
 	// Connect to NATS
 	nc, err := nats.Connect(nats.DefaultURL)
 	if err != nil {

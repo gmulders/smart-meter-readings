@@ -6,15 +6,17 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/eclipse/paho.golang/autopaho"
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+
 	smr "github.com/gmulders/smart-meter-readings"
 	log "github.com/sirupsen/logrus"
 	"github.com/tarm/serial"
 )
 
 const (
-	mqttTopicEnvName  = "MQTT_TOPIC"
-	serialPortEnvName = "SERIAL_PORT"
+	serialPortEnvName      = "SERIAL_PORT"
+	influxServerUrlEnvName = "INLFUX_SERVER_URL"
+	influxAuthTokenEnvName = "INLFUX_AUTH_TOKEN"
 )
 
 func main() {
@@ -25,27 +27,31 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	clientConfig := smr.BuildPahoClientConfig()
-
-	mqttTopic := os.Getenv(mqttTopicEnvName)
-	if mqttTopic == "" {
-		log.Fatalf("Empty string %s '%s'", mqttTopicEnvName, mqttTopic)
-	}
-
 	serialPort := os.Getenv(serialPortEnvName)
 	if serialPort == "" {
-		log.Fatalf("Empty string %s '%s'", serialPortEnvName, serialPort)
+		log.Fatalf("Empty environment property %s '%s'", serialPortEnvName, serialPort)
 	}
+
 	config := &serial.Config{
 		Name: serialPort,
 		Baud: 115200,
 	}
 
-	// Connect to the broker - this will return immediately after initiating the connection process
-	cm, err := autopaho.NewConnection(ctx, clientConfig)
-	if err != nil {
-		log.Fatal(err)
+	influxServerUrl := os.Getenv(influxServerUrlEnvName)
+	if influxServerUrl == "" {
+		log.Fatalf("Empty environment property %s '%s'", influxServerUrlEnvName, influxServerUrl)
 	}
+
+	influxAuthToken := os.Getenv(influxAuthTokenEnvName)
+	if influxAuthToken == "" {
+		log.Fatalf("Empty environment property %s '%s'", influxAuthTokenEnvName, influxAuthToken)
+	}
+
+	client := influxdb2.NewClientWithOptions(
+		influxServerUrl,
+		influxAuthToken,
+		influxdb2.DefaultOptions(),
+	)
 
 	serial, err := serial.OpenPort(config)
 	if err != nil {
@@ -54,7 +60,7 @@ func main() {
 
 	reader := bufio.NewReader(serial)
 
-	go smr.WriteMeasurementStream[smr.Telegram](ctx, channel, handler, cm, mqttTopic)
+	go smr.WriteMeasurementStream[smr.Telegram](ctx, channel, handler, client)
 
 	readTelegramStream(reader, channel)
 }

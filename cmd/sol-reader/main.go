@@ -9,16 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eclipse/paho.golang/autopaho"
 	smr "github.com/gmulders/smart-meter-readings"
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	retry "github.com/sethvargo/go-retry"
 	"github.com/simonvetter/modbus"
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	mqttTopicEnvName = "MQTT_TOPIC"
-	modbusUrlEnvName = "MODBUS_URL"
+	modbusUrlEnvName       = "MODBUS_URL"
+	influxServerUrlEnvName = "INLFUX_SERVER_URL"
+	influxAuthTokenEnvName = "INLFUX_AUTH_TOKEN"
 )
 
 func main() {
@@ -30,25 +31,34 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	config := smr.BuildPahoClientConfig()
-
-	mqttTopic := os.Getenv(mqttTopicEnvName)
-	if mqttTopic == "" {
-		log.Fatalf("Empty string %s '%s'", mqttTopicEnvName, mqttTopic)
-	}
-
 	//	modbusUrl := "tcp://192.168.1.127:1502"
 	modbusUrl := os.Getenv(modbusUrlEnvName)
 	if modbusUrl == "" {
-		log.Fatalf("Empty string %s '%s'", modbusUrlEnvName, modbusUrl)
+		log.Fatalf("Empty environment property %s '%s'", modbusUrlEnvName, modbusUrl)
 	}
 
-	// Connect to the broker - this will return immediately after initiating the connection process
-	cm, err := autopaho.NewConnection(ctx, config)
-	if err != nil {
-		log.Fatal(err)
+	influxServerUrl := os.Getenv(influxServerUrlEnvName)
+	if influxServerUrl == "" {
+		log.Fatalf("Empty environment property %s '%s'", influxServerUrlEnvName, influxServerUrl)
 	}
-	go smr.WriteMeasurementStream[smr.SolarReadout](ctx, channel, handler, cm, mqttTopic)
+
+	influxAuthToken := os.Getenv(influxAuthTokenEnvName)
+	if influxAuthToken == "" {
+		log.Fatalf("Empty environment property %s '%s'", influxAuthTokenEnvName, influxAuthToken)
+	}
+
+	client := influxdb2.NewClientWithOptions(
+		influxServerUrl,
+		influxAuthToken,
+		influxdb2.DefaultOptions(),
+	)
+
+	// // Connect to the broker - this will return immediately after initiating the connection process
+	// cm, err := autopaho.NewConnection(ctx, config)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	go smr.WriteMeasurementStream[smr.SolarReadout](ctx, channel, handler, client)
 
 	readSolarReadoutStream(modbusUrl, 1*time.Second, channel)
 }

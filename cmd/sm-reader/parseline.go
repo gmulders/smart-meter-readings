@@ -210,4 +210,5 @@ func parseLine(msg *smr.Telegram, line string) {
 		return
 	}
 
+	log.Infof("Unparsed line '%s'", line)
 }

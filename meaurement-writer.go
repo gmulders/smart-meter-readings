@@ -4,25 +4,25 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
-	"github.com/eclipse/paho.golang/autopaho"
-	"github.com/eclipse/paho.golang/paho"
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+	"github.com/influxdata/influxdb-client-go/v2/api/write"
 	log "github.com/sirupsen/logrus"
 )
 
 type IMeasurementHandler[M any] interface {
 	GetTimestamp(m M) time.Time
+	CreatePoint(m M) *write.Point
 	WriteMeasurement(writer io.Writer, m M, previous M) error
 	ZeroMeasurement() M
 }
 
-func WriteMeasurementStream[M any](ctx context.Context, ch chan M, h IMeasurementHandler[M], cm *autopaho.ConnectionManager, topic string) {
+func WriteMeasurementStream[M any](ctx context.Context, ch chan M, h IMeasurementHandler[M], client influxdb2.Client) {
 
 	lastMonth := -1
 	var writer *bufio.Writer
@@ -30,34 +30,12 @@ func WriteMeasurementStream[M any](ctx context.Context, ch chan M, h IMeasuremen
 	var filename string
 	var previousTelegram M
 
+	writeAPI := client.WriteAPI("ha", "electricity")
+
 	for {
 		telegram := <-ch
 
-		json, err := json.Marshal(telegram)
-		if err != nil {
-			log.Error(err)
-		}
-
-		// AwaitConnection will return immediately if connection is up; adding this call stops publication whilst
-		// connection is unavailable.
-		asd, cancel := context.WithTimeout(ctx, 1*time.Second)
-		err = cm.AwaitConnection(asd)
-		cancel()
-		if err != nil { // Should only happen when context is cancelled
-			log.Errorf("Could not connect to the mqtt broker: %v", err)
-			// We continue with saving the measurement, so that we don't lose data
-		} else {
-			publish := paho.Publish{
-				QoS:     1,
-				Topic:   topic,
-				Payload: json,
-			}
-			_, err = cm.Publish(ctx, &publish)
-			if err != nil {
-				log.Errorf("Could not publish measurement event to mqtt: %v", err)
-				// We continue with saving the measurement, so that we don't lose data
-			}
-		}
+		writeAPI.WritePoint(h.CreatePoint(telegram))
 
 		currentMonth := int(h.GetTimestamp(telegram).Month())
 
@@ -72,7 +50,7 @@ func WriteMeasurementStream[M any](ctx context.Context, ch chan M, h IMeasuremen
 				go gzipFile(filename)
 			}
 
-			filename, err = determineFilename(h.GetTimestamp(telegram))
+			filename, err := determineFilename(h.GetTimestamp(telegram))
 			if err != nil {
 				log.Fatal(err)
 			}
